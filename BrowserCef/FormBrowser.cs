@@ -1,7 +1,6 @@
 ﻿using BrowserLib;
 using CefSharp;
 using CefSharp.WinForms;
-//using mshtml;
 using Nekoxy;
 using System;
 using System.Collections.Generic;
@@ -117,7 +116,7 @@ namespace Browser
 			// SizeAdjuster
 			// 
 			this.SizeAdjuster.Controls.Add(this.Browser);
-			
+
 			// 
 			// Browser
 			// 
@@ -128,8 +127,18 @@ namespace Browser
 			this.Browser.Size = new System.Drawing.Size(284, 236);
 			this.Browser.TabIndex = 0;
 
-			//this.Browser.DocumentCompleted += new System.Windows.Forms.WebBrowserDocumentCompletedEventHandler(this.Browser_DocumentCompleted);
-			//this.Browser.Navigating += new System.Windows.Forms.WebBrowserNavigatingEventHandler(this.Browser_Navigating);
+			this.Browser.LoadingStateChanged += OnLoadingStateChanged;
+		}
+
+		private void OnLoadingStateChanged(object sender, LoadingStateChangedEventArgs args)
+		{
+			if (!args.IsLoading)
+			{
+				ApplyStyleSheet();
+
+				ApplyZoom();
+				DestroyDMMreloadDialog();
+			}
 		}
 
 		/// <summary>
@@ -330,26 +339,6 @@ namespace Browser
 		}
 
 
-		private void Browser_Navigating(object sender, WebBrowserNavigatingEventArgs e)
-		{
-
-			// note: ここを有効にすると別ページに切り替えた際にきちんとセーフティが働くが、代わりにまれに誤検知して撮影できなくなる時がある
-			// 無効にするとセーフティは働かなくなるが誤検知がなくなる
-			// セーフティを切ってでも誤検知しなくしたほうがいいので無効化
-
-			//IsKanColleLoaded = false;
-
-		}
-
-		private void Browser_DocumentCompleted(object sender, WebBrowserDocumentCompletedEventArgs e)
-		{
-
-			ApplyStyleSheet();
-
-			ApplyZoom();
-			DestroyDMMreloadDialog();
-		}
-
 		/// <summary>
 		/// スタイルシートを適用します。
 		/// </summary>
@@ -436,7 +425,7 @@ namespace Browser
 		{
 			if (url != Configuration.LogInPageURL || !Configuration.AppliesStyleSheet)
 				StyleSheetApplied = false;
-			//Browser.Navigate(url);
+			Browser.Load(url);
 		}
 
 		/// <summary>
@@ -454,8 +443,6 @@ namespace Browser
 		/// </summary>
 		public void ApplyZoom()
 		{
-			throw new NotImplementedException("ApplyZoom");
-
 			/*int zoomRate = Configuration.ZoomRate;
 			bool fit = Configuration.ZoomFit && StyleSheetApplied;
 
@@ -1054,7 +1041,7 @@ namespace Browser
 
 		private void ToolMenu_Other_Navigate_Click(object sender, EventArgs e)
 		{
-			//BrowserHost.AsyncRemoteRun(() => BrowserHost.Proxy.RequestNavigation(Browser.Url == null ? null : Browser.Url.ToString()));
+			BrowserHost.AsyncRemoteRun(() => BrowserHost.Proxy.RequestNavigation(Browser.Address));
 		}
 
 		private void ToolMenu_Other_AppliesStyleSheet_Click(object sender, EventArgs e)
@@ -1421,7 +1408,7 @@ namespace Browser
 	/// WebBrowserShortCutEnabled = false だとメニューのショートカットキーが無効化されるため、
 	/// わざわざ手動で実装しています。
 	/// </summary>
-	internal class ExtraWebBrowser : WebBrowser
+	internal class ExtraWebBrowser : ChromiumWebBrowser
 	{
 
 		public event KeyEventHandler ReplacedKeyDown = delegate { };
