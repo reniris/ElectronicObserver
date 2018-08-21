@@ -334,8 +334,8 @@ namespace Browser
 				y = (SizeAdjuster.Height - Browser.Height) / 2;
 			}
 
-			//if ( x != Browser.Location.X || y != Browser.Location.Y )
-			Browser.Location = new Point(x, y);
+			if (x != Browser.Location.X || y != Browser.Location.Y)
+				Browser.Location = new Point(x, y);
 		}
 
 
@@ -348,6 +348,7 @@ namespace Browser
 			if (!Configuration.AppliesStyleSheet && !RestoreStyleSheet)
 				return;
 
+			//var doc = await Browser.GetBrowser().MainFrame.GetSourceAsync();
 			/*try
 			{
 
@@ -512,9 +513,9 @@ namespace Browser
 		}*/
 
 		// 中のフレームからidにマッチする要素を返す
-		private static HtmlElement getFrameElementById(HtmlDocument document, String id)
+		/*private static HtmlElement getFrameElementById(HtmlDocument document, String id)
 		{
-			/*foreach (HtmlWindow frame in document.Window.Frames)
+			foreach (HtmlWindow frame in document.Window.Frames)
 			{
 
 				// frameが別ドメインだとセキュリティ上の問題（クロスフレームスクリプティング）
@@ -528,11 +529,11 @@ namespace Browser
 					continue;
 
 				return htmlElement;
-			}*/
+			}
 
 			return null;
 		}
-
+		*/
 
 
 		/// <summary>
@@ -737,82 +738,66 @@ namespace Browser
 		/// <summary>
 		/// キャッシュを削除します。
 		/// </summary>
-		private bool ClearCache(long timeoutMilliseconds = 5000)
+		private async Task<bool> ClearCacheAsync(long timeoutMilliseconds = 5000)
 		{
+			var tokenSource = new System.Threading.CancellationTokenSource();
+			var token = tokenSource.Token;
+			tokenSource.CancelAfter(TimeSpan.FromMilliseconds(timeoutMilliseconds));
+			bool success = false;
 
-			const int CACHEGROUP_SEARCH_ALL = 0x0;
-			const int ERROR_NO_MORE_ITEMS = 259;
-			const uint CACHEENTRYTYPE_COOKIE = 1048577;
-			const uint CACHEENTRYTYPE_HISTORY = 2097153;
-
-			long groupId = 0;
-
-			int cacheEntryInfoBufferSizeInitial = 0;
-			int cacheEntryInfoBufferSize = 0;
-			IntPtr cacheEntryInfoBuffer = IntPtr.Zero;
-			IntPtr enumHandle = IntPtr.Zero;
-
-
-			enumHandle = FindFirstUrlCacheGroup(0, CACHEGROUP_SEARCH_ALL, IntPtr.Zero, 0, ref groupId, IntPtr.Zero);
-
-			if (enumHandle != IntPtr.Zero && ERROR_NO_MORE_ITEMS == Marshal.GetLastWin32Error())
-				return true;
-
-			/*/
-			while ( true ) {
-				bool returnValue = DeleteUrlCacheGroup( groupId, CACHEGROUP_FLAG_FLUSHURL_ONDELETE, IntPtr.Zero );
-				if ( !returnValue && ERROR_FILE_NOT_FOUND == Marshal.GetLastWin32Error() ) {
-					returnValue = FindNextUrlCacheGroup( enumHandle, ref groupId, IntPtr.Zero );
-				}
-
-				if ( !returnValue && ( ERROR_NO_MORE_ITEMS == Marshal.GetLastWin32Error() || ERROR_FILE_NOT_FOUND == Marshal.GetLastWin32Error() ) )
-					break;
-			}
-			//*/
-
-			enumHandle = FindFirstUrlCacheEntry(null, IntPtr.Zero, ref cacheEntryInfoBufferSizeInitial);
-			if (enumHandle != IntPtr.Zero && ERROR_NO_MORE_ITEMS == Marshal.GetLastWin32Error())
-				return true;
-
-			cacheEntryInfoBufferSize = cacheEntryInfoBufferSizeInitial;
-			cacheEntryInfoBuffer = Marshal.AllocHGlobal(cacheEntryInfoBufferSize);
-			enumHandle = FindFirstUrlCacheEntry(null, cacheEntryInfoBuffer, ref cacheEntryInfoBufferSizeInitial);
-
-
-			Stopwatch sw = Stopwatch.StartNew();
-			while (sw.ElapsedMilliseconds < timeoutMilliseconds)
+			try
 			{
-				var internetCacheEntry = (INTERNET_CACHE_ENTRY_INFOA)Marshal.PtrToStructure(cacheEntryInfoBuffer, typeof(INTERNET_CACHE_ENTRY_INFOA));
+				await ClearCacheAsync(token);
 
-				cacheEntryInfoBufferSizeInitial = cacheEntryInfoBufferSize;
-
-
-				var type = internetCacheEntry.CacheEntryType;
-				bool returnValue = false;
-
-				if (type != CACHEENTRYTYPE_COOKIE && type != CACHEENTRYTYPE_HISTORY)
-					returnValue = DeleteUrlCacheEntry(internetCacheEntry.lpszSourceUrlName);
-
-				if (!returnValue)
-				{
-					returnValue = FindNextUrlCacheEntry(enumHandle, cacheEntryInfoBuffer, ref cacheEntryInfoBufferSizeInitial);
-				}
-				if (!returnValue && ERROR_NO_MORE_ITEMS == Marshal.GetLastWin32Error())
-				{
-					break;
-				}
-				if (!returnValue && cacheEntryInfoBufferSizeInitial > cacheEntryInfoBufferSize)
-				{
-					cacheEntryInfoBufferSize = cacheEntryInfoBufferSizeInitial;
-					cacheEntryInfoBuffer = Marshal.ReAllocHGlobal(cacheEntryInfoBuffer, (IntPtr)cacheEntryInfoBufferSize);
-					returnValue = FindNextUrlCacheEntry(enumHandle, cacheEntryInfoBuffer, ref cacheEntryInfoBufferSizeInitial);
-				}
 			}
-			sw.Stop();
-			Marshal.FreeHGlobal(cacheEntryInfoBuffer);
+			catch (TaskCanceledException)
+			{
 
+			}
+			catch (OperationCanceledException)
+			{
+				;
+			}
+			catch (Exception)
+			{
+				;
+			}
+			finally
+			{
+				success = !tokenSource.IsCancellationRequested;
+				tokenSource.Dispose();
+			}
 
-			return sw.ElapsedMilliseconds < timeoutMilliseconds;
+			return success;
+		}
+
+		private async Task ClearCacheAsync(System.Threading.CancellationToken token)
+		{
+			var cefSettings = new CefSettings();
+			var cache = cefSettings.CachePath;
+
+			var t = Task.Run(() =>
+			{
+				string dir = cache;
+				object obj = new Object();
+
+				if (Directory.Exists(dir))
+				{
+					Parallel.ForEach(Directory.GetFiles(dir),
+					f =>
+					{
+						if (token.IsCancellationRequested)
+							token.ThrowIfCancellationRequested();
+						var fi = new FileInfo(f);
+						lock (obj)
+						{
+							fi.Delete();
+						}
+					});
+				}
+			}, token);
+
+			await t;
 		}
 
 
@@ -1079,22 +1064,17 @@ namespace Browser
 		}
 
 
-		private void ToolMenu_Other_ClearCache_Click(object sender, EventArgs e)
+		private async void ToolMenu_Other_ClearCache_Click(object sender, EventArgs e)
 		{
 
 			if (MessageBox.Show("ブラウザのキャッシュを削除します。\nよろしいですか？", "キャッシュの削除", MessageBoxButtons.OKCancel, MessageBoxIcon.Question)
 				== System.Windows.Forms.DialogResult.OK)
 			{
-
-				BeginInvoke((MethodInvoker)(() =>
-				{
-					bool succeeded = ClearCache();
-					if (succeeded)
-						MessageBox.Show("キャッシュの削除が完了しました。", "削除完了", MessageBoxButtons.OK, MessageBoxIcon.Information);
-					else
-						MessageBox.Show("時間がかかりすぎたため、キャッシュの削除を中断しました。\r\n削除しきれていない可能性があります。", "削除中断", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
-				}));
-
+				bool succeeded = await ClearCacheAsync();
+				if (succeeded)
+					MessageBox.Show("キャッシュの削除が完了しました。", "削除完了", MessageBoxButtons.OK, MessageBoxIcon.Information);
+				else
+					MessageBox.Show("時間がかかりすぎたため、キャッシュの削除を中断しました。\r\n削除しきれていない可能性があります。", "削除中断", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
 			}
 		}
 
